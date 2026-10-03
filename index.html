@@ -36,8 +36,8 @@
     <h2>Mit dem privaten Stand verbinden</h2>
     <p>
       Diese Seite ist öffentlich und enthält keine Chat-Inhalte. Sie liest
-      <code>stand.json</code> aus dem privaten Repo und schreibt Diskussionen nach
-      <code>gespraeche.json</code> — mit deinem eigenen GitHub-Token.
+      <code>stand.json</code> aus dem privaten Repo und schreibt Diskussionen sowie
+      den Wunsch „Neue Vorschläge“ nach <code>gespraeche.json</code> — mit deinem eigenen GitHub-Token.
       Das Token bleibt in diesem Browser und geht nur an <code>api.github.com</code>.
       Nichts geht an WhatsApp.
     </p>
@@ -84,14 +84,51 @@
       </ol>
     </section>
 
+    <section class="uebersicht" aria-label="Chat-Übersicht">
+      <div class="block-kopf">
+        <h2>Chat-Übersicht</h2>
+        <button type="button" class="knopf knopf-spaeter" id="uebersicht-toggle" aria-expanded="false" aria-controls="uebersicht-liste">runter</button>
+      </div>
+      <div class="uebersicht-liste" id="uebersicht-liste"></div>
+    </section>
+
     <div class="block-kopf">
-      <h2>Auf einen Blick</h2>
-      <p id="blick-unter">Wartende Chats, letzte Zeile, ein Entwurf.</p>
+      <div>
+        <h2>Offene Chats</h2>
+        <p id="blick-unter">Wartende Chats, letzte Zeile, ein Entwurf.</p>
+      </div>
+      <button type="button" class="knopf knopf-kopie" id="neue-vorschlaege">Neue Vorschläge</button>
     </div>
+    <p class="wunsch-note" id="wunsch-note" hidden></p>
+    <p class="fehler" id="wunsch-fehler" role="alert" hidden></p>
 
     <p class="leer" id="leer">In dieser Ansicht ist nichts mehr aufgeklappt. In WhatsApp wurde nichts gesendet.</p>
 
-    <section class="board" id="board" aria-label="Wartende Chats"></section>
+    <section class="board" id="board" aria-label="Offene Chats"></section>
+
+    <section class="kasten" aria-label="Aufgaben" id="aufgaben-box">
+      <div class="block-kopf">
+        <h2>Aufgaben</h2>
+        <p>Nur, was der Stand hergibt.</p>
+      </div>
+      <div id="aufgaben"></div>
+    </section>
+
+    <section class="kasten" aria-label="Timer" id="timer-box">
+      <div class="block-kopf">
+        <h2>Timer</h2>
+        <p>Nur gesetzte Uhrzeiten. Kein Alarm im Browser.</p>
+      </div>
+      <div class="timer-leiste" id="timer"></div>
+    </section>
+
+    <section class="kasten" aria-label="Kalender" id="kalender-box">
+      <div class="block-kopf">
+        <h2>Kalender</h2>
+        <p>Ohne Monatsraster.</p>
+      </div>
+      <div id="termine"></div>
+    </section>
 
     <section class="streifen" aria-label="Zuletzt gesehen" id="zuletzt-box" hidden>
       <div class="block-kopf">

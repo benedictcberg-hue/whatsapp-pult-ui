@@ -216,6 +216,7 @@ function hatChatId(wert) {
 }
 
 function passtZuChat(eintrag, chat) {
+  if (eintrag && eintrag.typ) return false;
   if (hatChatId(chat && chat.id) && hatChatId(eintrag && eintrag.id)) {
     return String(eintrag.id) === String(chat.id);
   }
@@ -280,21 +281,21 @@ async function gespraecheLesenMitSha() {
 }
 
 function gleicherEintrag(a, b) {
-  return !!a && typeof a === "object" && a.zeit === b.zeit && a.name === b.name && a.text === b.text;
+  return !!a && typeof a === "object" && a.zeit === b.zeit && a.typ === b.typ &&
+    a.name === b.name && a.text === b.text;
 }
 
 // Schreibvorgänge dieses Tabs laufen nacheinander, nicht gegeneinander.
 let schreibKette = Promise.resolve();
 
-function gespraecheAblegen(chat, eintrag) {
-  const lauf = schreibKette.then(() => gespraecheAblegenJetzt(chat, eintrag));
+function gespraecheAblegen(eintrag, meldung) {
+  const lauf = schreibKette.then(() => gespraecheAblegenJetzt(eintrag, meldung));
   schreibKette = lauf.catch(() => {});
   return lauf;
 }
 
-async function gespraecheAblegenJetzt(chat, eintrag) {
+async function gespraecheAblegenJetzt(eintrag, meldung) {
   const url = `${API}/contents/${GESPRAECHE_DATEI}`;
-  const name = String((chat && chat.name) || "").replace(/[\r\n]+/g, " ").trim();
   let letzterFehler = null;
   for (let versuch = 0; versuch < 3; versuch++) {
     if (versuch) await new Promise((ok) => window.setTimeout(ok, 400 * versuch));
@@ -305,7 +306,7 @@ async function gespraecheAblegenJetzt(chat, eintrag) {
     daten.gespraeche.push(eintrag);
     const inhalt = JSON.stringify(daten, null, 2) + "\n";
     const koerper = {
-      message: "Gespraech: " + name,
+      message: meldung,
       content: utf8NachBase64(inhalt),
       branch: BRANCH,
     };
@@ -477,7 +478,10 @@ function chatKarte(chat) {
 
   logZeichnen(log, chat);
 
-  const artikel = el("article", { class: "chat" },
+  const artikel = el("article", {
+    class: "chat",
+    "data-chat-id": hatChatId(chat.id) ? String(chat.id) : false,
+  },
     el("header", { class: "chat-kopf" },
       el("div", { class: "avatar", "aria-hidden": "true", text: initialen(name) }),
       el("div", { class: "wer" },
@@ -574,7 +578,10 @@ function zuletztZeichnen(daten) {
       statusKinder.push(" ");
       statusKinder.push(el("span", { class: "ticks", "aria-hidden": "true", text: "✓✓" }));
     }
-    return el("article", { class: "ruhig-karte" },
+    return el("article", {
+      class: "ruhig-karte",
+      "data-chat-id": hatChatId(eintrag.id) ? String(eintrag.id) : false,
+    },
       el("div", { class: "name-zeile" },
         el("span", { class: "name", text: String(eintrag.name || "") }),
         el("span", { class: "zeit", text: String(eintrag.zeit || "") })
@@ -604,12 +611,139 @@ function hinweisZeichnen(daten) {
     } else {
       text = "Vorschau leer. Öffnen des Chats hat ihn als gelesen markiert.";
     }
-    return el("article", { class: "notiz-karte" },
+    return el("article", {
+      class: "notiz-karte",
+      "data-chat-id": hatChatId(eintrag.id) ? String(eintrag.id) : false,
+    },
       el("strong", { text: name }),
       zeit ? el("span", { class: "zeit", text: zeit }) : null,
       el("p", { text: text })
     );
   }));
+}
+
+
+function zielFinden(id) {
+  const ziel = String(id || "");
+  if (!ziel) return null;
+  const alle = document.querySelectorAll("[data-chat-id]");
+  let fallback = null;
+  for (const knoten of alle) {
+    if (knoten.getAttribute("data-chat-id") !== ziel) continue;
+    if (knoten.classList.contains("chat")) return knoten;
+    if (!fallback) fallback = knoten;
+  }
+  return fallback;
+}
+
+function uebersichtZeichnen(daten) {
+  const liste = eintraege(daten.chats);
+  const box = $("uebersicht-liste");
+  if (!liste.length) {
+    box.replaceChildren(el("p", { class: "leer-zeile", text: "Keine Chats im Stand." }));
+    return;
+  }
+  box.replaceChildren(...liste.map((chat) => {
+    if (chat.neu) {
+      return el("div", { class: "neu-slot" },
+        el("span", { class: "pille pille-ruhig", text: String(chat.marke || "neu") }),
+        el("span", { text: String(chat.hinweis || "Platz für neue Chats") })
+      );
+    }
+    const ungelesen = Math.max(0, Math.floor(Number(chat.ungelesen || chat.anzahl) || 0));
+    const vorschau = String(chat.vorschau || chat.letzte || chat.text || "");
+    return el("button", {
+      type: "button",
+      class: "chat-zeile" + (ungelesen ? " hat-ungelesen" : ""),
+      "data-sprung": hatChatId(chat.id) ? String(chat.id) : false,
+    },
+      el("span", { class: "name", text: String(chat.name || "") }),
+      el("span", { class: "zeit", text: String(chat.zeit || "") }),
+      ungelesen
+        ? el("span", { class: "badge", text: String(ungelesen) })
+        : el("span", { class: "badge-platz", "aria-hidden": "true" }),
+      el("span", { class: "vorschau", text: vorschau })
+    );
+  }));
+}
+
+function aufgabenZeichnen(daten) {
+  const liste = eintraege(daten.aufgaben);
+  const box = $("aufgaben");
+  if (!liste.length) {
+    box.replaceChildren(el("p", { class: "leer-zeile", text: "Keine Aufgaben aus den Gesprächen." }));
+    return;
+  }
+  box.className = "aufgaben-liste";
+  box.replaceChildren(...liste.map((eintrag) => {
+    const titel = String(eintrag.titel || eintrag.name || "");
+    const status = String(eintrag.status || "");
+    const kinder = [
+      el("div", { class: "name-zeile" },
+        el("span", { class: "name", text: titel }),
+        status ? el("span", { class: "pille pille-amber", text: status }) : null
+      ),
+    ];
+    if (eintrag.optional) kinder.push(el("span", { class: "meta-klein", text: "optional" }));
+    if (eintrag.quelle) kinder.push(el("p", { text: "Quelle: " + String(eintrag.quelle) }));
+    if (eintrag.datum) kinder.push(el("p", { text: String(eintrag.datum) }));
+    return el("article", { class: "aufgabe" }, ...kinder);
+  }));
+}
+
+function timerZeichnen(daten) {
+  const liste = eintraege(daten.timer);
+  const box = $("timer");
+  if (!liste.length) {
+    box.replaceChildren(el("p", { class: "leer-zeile", text: "Kein Alarm." }));
+    return;
+  }
+  box.replaceChildren(...liste.map((eintrag) => {
+    const alarm = String(eintrag.alarm || eintrag.wann || "");
+    return el("article", { class: "timer-karte" },
+      el("span", { class: "name", text: String(eintrag.name || "") }),
+      el("time", { datetime: alarm, text: zeitAnzeige(alarm) || alarm }),
+      eintrag.dauer ? el("span", { text: String(eintrag.dauer) }) : null,
+      eintrag.text ? el("span", { class: "vorschau", text: String(eintrag.text) }) : null,
+      el("span", { class: "meta-klein", text: "Quelle: " + String(eintrag.quelle || "") })
+    );
+  }));
+}
+
+function termineZeichnen(daten) {
+  const liste = eintraege(daten.termine);
+  const box = $("termine");
+  if (!liste.length) {
+    box.replaceChildren(el("p", { class: "leer-zeile", text: "Keine Termine aus den Gesprächen." }));
+    return;
+  }
+  box.className = "termin-liste";
+  box.replaceChildren(...liste.map((eintrag) => {
+    const titel = String(eintrag.titel || eintrag.name || eintrag.text || "");
+    const wann = String(eintrag.wann || eintrag.zeit || eintrag.datum || "");
+    return el("article", { class: "termin-karte" },
+      el("div", { class: "name-zeile" },
+        el("span", { class: "name", text: titel }),
+        wann ? el("span", { class: "zeit", text: wann }) : null
+      ),
+      eintrag.quelle ? el("p", { text: "Quelle: " + String(eintrag.quelle) }) : null
+    );
+  }));
+}
+
+let offenerWunsch = null;
+
+// Gleicher Schreibweg wie „Ins Repo“: nacheinander, mit Wiederholung, und
+// nach verlorener Antwort derselbe Eintrag statt eines zweiten Wunsches.
+function wunschAblegen() {
+  if (!offenerWunsch) offenerWunsch = { typ: "neue-vorschlaege", zeit: new Date().toISOString() };
+  return gespraecheAblegen(offenerWunsch, "Wunsch: neue Vorschlaege").then((liste) => {
+    offenerWunsch = null;
+    return liste;
+  }, (e) => {
+    if (!(e instanceof NetzFehler)) offenerWunsch = null;
+    throw e;
+  });
 }
 
 function dashboardZeichnen(daten) {
@@ -621,6 +755,10 @@ function dashboardZeichnen(daten) {
     : "Quelle: WhatsApp Web, nur gelesen. Diskussion nur ins private Repo, nicht an WhatsApp.";
   boardZeichnen(daten);
   kennzahlenZeichnen(daten);
+  uebersichtZeichnen(daten);
+  aufgabenZeichnen(daten);
+  timerZeichnen(daten);
+  termineZeichnen(daten);
   zuletztZeichnen(daten);
   hinweisZeichnen(daten);
   zeigen("dashboard");
@@ -716,6 +854,16 @@ function dashboardLeeren() {
   $("kennzahlen").replaceChildren();
   $("zuletzt").replaceChildren();
   $("hinweis").replaceChildren();
+  $("uebersicht-liste").replaceChildren();
+  $("uebersicht-liste").classList.remove("offen");
+  $("uebersicht-toggle").textContent = "runter";
+  $("uebersicht-toggle").setAttribute("aria-expanded", "false");
+  $("aufgaben").replaceChildren();
+  $("timer").replaceChildren();
+  $("termine").replaceChildren();
+  $("wunsch-note").hidden = true;
+  $("wunsch-note").textContent = "";
+  $("wunsch-fehler").hidden = true;
   $("zuletzt-box").hidden = true;
   $("hinweis-box").hidden = true;
   $("stand-meta").textContent = "";
@@ -730,6 +878,57 @@ function verdrahten() {
     document.body.textContent = "WhatsApp-Pult bitte direkt öffnen.";
     return;
   }
+
+  $("uebersicht-toggle").addEventListener("click", () => {
+    const liste = $("uebersicht-liste");
+    const offen = liste.classList.toggle("offen");
+    const knopf = $("uebersicht-toggle");
+    knopf.textContent = offen ? "hoch" : "runter";
+    knopf.setAttribute("aria-expanded", offen ? "true" : "false");
+  });
+
+  $("uebersicht-liste").addEventListener("click", (ev) => {
+    const ziel = ev.target instanceof Element ? ev.target.closest("[data-sprung]") : null;
+    if (!ziel) return;
+    const karte = zielFinden(ziel.getAttribute("data-sprung"));
+    if (!karte) return;
+    karte.scrollIntoView({ behavior: "smooth", block: "start" });
+    karte.classList.add("sprung");
+    window.setTimeout(() => karte.classList.remove("sprung"), 1600);
+  });
+
+  $("neue-vorschlaege").addEventListener("click", () => {
+    const knopf = $("neue-vorschlaege");
+    const note = $("wunsch-note");
+    const fehler = $("wunsch-fehler");
+    if (!zustand.token || knopf.disabled) return;
+    knopf.disabled = true;
+    knopf.textContent = "Schreibe …";
+    fehler.hidden = true;
+    zustand.schreibend++;
+    neuLadenKnopf();
+    wunschAblegen().then((liste) => {
+      if (!zustand.token) return; // inzwischen abgemeldet
+      zustand.gespraeche = liste;
+      note.hidden = false;
+      note.textContent = "Wunsch liegt im Repo, Vorschläge kommen mit dem nächsten Stand.";
+      ansagen("Wunsch liegt im Repo.");
+    }).catch((e) => {
+      if (!zustand.token) return;
+      if (e instanceof GitHubFehler && e.status === 401) {
+        tokenUngueltig(verstaendlich(e, GESPRAECHE_DATEI));
+        return;
+      }
+      fehler.hidden = false;
+      fehler.textContent = schreibHinweis(e);
+    }).finally(() => {
+      knopf.textContent = "Neue Vorschläge";
+      knopf.disabled = false;
+      zustand.schreibend--;
+      neuLadenKnopf();
+    });
+  });
+
   $("token-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const wert = $("token-eingabe").value.trim();
@@ -822,7 +1021,8 @@ function verdrahten() {
       if (fehler) fehler.hidden = true;
       zustand.schreibend++;
       neuLadenKnopf();
-      gespraecheAblegen(chatDaten, eintrag).then((liste) => {
+      const name = String(chatDaten.name || "").replace(/[\r\n]+/g, " ").trim();
+      gespraecheAblegen(eintrag, "Gespraech: " + name).then((liste) => {
         offenerEintrag.delete(chat);
         if (!zustand.token) return; // inzwischen abgemeldet
         zustand.gespraeche = liste;

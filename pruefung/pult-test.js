@@ -37,6 +37,14 @@ const STAND = {
   ],
   zuletzt: [{ name: "Kontakt D", zeit: "01:00", text: "Erfunden D", status: "eigene Nachricht · zugestellt", ticks: true }],
   hinweis: [{ name: "Kontakt E", zeit: "gestern", vorschau: "🙂", gelesen_beim_oeffnen: true }],
+  chats: [
+    { id: "c1", name: "Kontakt A", zeit: "gestern", ungelesen: 2, vorschau: "Erfundene Zeile A" },
+    { id: "c9", name: "Kontakt F", zeit: "Montag", vorschau: "Erfunden F" },
+    { neu: true, marke: "neu", hinweis: "Platz für neue Chats" },
+  ],
+  aufgaben: [{ titel: "Erfundene Aufgabe", status: "offen", quelle: "Kontakt B" }],
+  timer: [{ name: "Erfundener Timer", alarm: "2030-01-01T18:00:00+01:00", quelle: "Kontakt A" }],
+  termine: [{ titel: "Erfundener Termin", wann: "2. Januar 2030", quelle: "Gruppe C" }],
 };
 
 let shaZaehler = 0;
@@ -312,7 +320,8 @@ const TESTS = {
   },
 
   async kaputteDaten(browser) {
-    const stand = { stand: 5, ungelesen: [null, "x", { name: "", anzahl: "drei", letzte: "W".repeat(400), vorschlag: null }, { name: "Kontakt Z", anzahl: -2 }], zuletzt: [null, { name: "Q", ticks: "false" }], hinweis: "kein array" };
+    const stand = { stand: 5, ungelesen: [null, "x", { name: "", anzahl: "drei", letzte: "W".repeat(400), vorschlag: null }, { name: "Kontakt Z", anzahl: -2 }], zuletzt: [null, { name: "Q", ticks: "false" }], hinweis: "kein array",
+      chats: [null, 7, { name: "Kontakt Y", ungelesen: -1 }], aufgaben: [null, { titel: "A" }], timer: [null, "x"], termine: { kein: "array" } };
     const welt = neueWelt({ stand, gespraecheText: JSON.stringify({ gespraeche: [null, 5, { name: "Kontakt Z", text: "t" }] }) });
     const { page, fehler, ctx } = await seite(browser, welt, { viewport: { width: 360, height: 800 } });
     await verbinden(page);
@@ -531,6 +540,66 @@ const TESTS = {
     const g = JSON.parse(welt.dateien["gespraeche.json"].text);
     await ctx.close();
     return { ok: g.gespraeche.length === 3, anzahl: g.gespraeche.length, puts: welt.puts };
+  },
+
+  async wunschKnopf(browser) {
+    const welt = neueWelt({ gespraeche: [{ name: "Kontakt A", zeit: "2030-01-01T00:00:00Z", text: "alt", vorschlag: "" }] });
+    const { page, fehler, ctx } = await seite(browser, welt);
+    await verbinden(page);
+    await page.waitForSelector("#dashboard:not([hidden])");
+    await page.click("#neue-vorschlaege");
+    await page.waitForSelector("#wunsch-note:not([hidden])", { timeout: 4000 }).catch(() => {});
+    const note = await page.locator("#wunsch-note").innerText().catch(() => "");
+    const g = JSON.parse(welt.dateien["gespraeche.json"].text);
+    const log = await page.locator("#board article.chat").first().locator(".gespraech-log").innerText();
+    await ctx.close();
+    const w = g.gespraeche[1] || {};
+    return { ok: g.gespraeche.length === 2 && w.typ === "neue-vorschlaege" && /Wunsch liegt im Repo/.test(note) && !/neue-vorschlaege/.test(log) && fehler.length === 0,
+      anzahl: g.gespraeche.length, typ: w.typ, meldung: welt.letzteMeldung, note, fehler };
+  },
+
+  async wunschVerlorenKeinDuplikat(browser) {
+    const welt = neueWelt({ antwortVerlorenEinmal: true });
+    const { page, ctx } = await seite(browser, welt);
+    await verbinden(page);
+    await page.waitForSelector("#dashboard:not([hidden])");
+    await page.click("#neue-vorschlaege");
+    await warte(600);
+    const fehler1 = await page.locator("#wunsch-fehler").innerText().catch(() => "");
+    await page.click("#neue-vorschlaege");
+    await warte(600);
+    const g = JSON.parse(welt.dateien["gespraeche.json"].text);
+    await ctx.close();
+    return { ok: g.gespraeche.length === 1 && /Keine Verbindung/.test(fehler1), anzahl: g.gespraeche.length, fehler1 };
+  },
+
+  async wunschUndKommentarZugleich(browser) {
+    const welt = neueWelt({ verzoegerung: 120 });
+    const { page, ctx } = await seite(browser, welt);
+    await verbinden(page);
+    await page.waitForSelector("#dashboard:not([hidden])");
+    await page.locator("#board article.chat").first().locator("textarea").fill("zugleich");
+    await page.evaluate(() => { document.querySelector("#board [data-repo]").click(); document.getElementById("neue-vorschlaege").click(); });
+    await warte(2500);
+    const g = JSON.parse(welt.dateien["gespraeche.json"].text);
+    await ctx.close();
+    return { ok: g.gespraeche.length === 2 && welt.puts === 2, anzahl: g.gespraeche.length, puts: welt.puts };
+  },
+
+  async uebersichtSprung(browser) {
+    const welt = neueWelt({ stand: { ...STAND, ungelesen: STAND.ungelesen.map((c, i) => ({ ...c, id: "c" + (i + 1) })) } });
+    const { page, fehler, ctx } = await seite(browser, welt);
+    await verbinden(page);
+    await page.waitForSelector("#dashboard:not([hidden])");
+    await page.click("#uebersicht-toggle");
+    const zeilen = await page.locator("#uebersicht-liste .chat-zeile").count();
+    await page.locator("#uebersicht-liste .chat-zeile").first().click();
+    await warte(300);
+    const sprung = await page.locator("#board article.chat.sprung").count();
+    const bereiche = await page.locator("#aufgaben .aufgabe, #timer .timer-karte, #termine .termin-karte").count();
+    await page.screenshot({ path: path.join(SHOTS, "desktop-neu.png"), fullPage: true });
+    await ctx.close();
+    return { ok: zeilen === 2 && sprung === 1 && bereiche === 3 && fehler.length === 0, zeilen, sprung, bereiche, fehler };
   },
 
   async anmeldungOptik(browser) {
