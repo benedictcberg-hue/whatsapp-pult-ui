@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<meta name="referrer" content="no-referrer">
+<title>WhatsApp-Pult</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231f8a4c'/%3E%3Cpath fill='%23fff' d='M9 12.2c0-1.9 1.7-3.4 4-3.4h6.2c2.3 0 4 1.5 4 3.4v5.4c0 1.9-1.7 3.4-4 3.4h-3.4L11.2 24v-3.1c-1.3-.5-2.2-1.6-2.2-3.3v-5.4z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="seite">
+  <header class="kopf">
+    <div class="marke">
+      <svg class="logo" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="9" fill="#1f8a4c"/>
+        <path fill="#fff" d="M9 12.2c0-1.9 1.7-3.4 4-3.4h6.2c2.3 0 4 1.5 4 3.4v5.4c0 1.9-1.7 3.4-4 3.4h-3.4L11.2 24v-3.1c-1.3-.5-2.2-1.6-2.2-3.3v-5.4z"/>
+      </svg>
+      <div>
+        <h1>WhatsApp-Pult</h1>
+        <p class="sub">Überblick · nichts geht raus ohne dich</p>
+      </div>
+    </div>
+    <div class="kopf-rechts">
+      <span class="pille pille-gruen" id="verbindung" hidden><span class="punkt" aria-hidden="true"></span>verbunden</span>
+      <p class="meta" id="stand-meta"></p>
+      <button type="button" class="knopf knopf-spaeter" id="neu-laden" hidden>Neu laden</button>
+      <button type="button" class="knopf knopf-spaeter" id="abmelden" hidden>Token entfernen</button>
+    </div>
+  </header>
+
+  <section id="anmeldung" class="karte anmeldung" hidden>
+    <h2>Mit dem privaten Stand verbinden</h2>
+    <p>
+      Diese Seite ist öffentlich und enthält keine Chat-Inhalte. Sie liest
+      <code>stand.json</code> aus dem privaten Repo mit deinem eigenen GitHub-Token.
+      Das Token bleibt in diesem Browser und geht nur an <code>api.github.com</code>.
+    </p>
+    <ol class="schritte">
+      <li>
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Fine-grained Token anlegen</a>
+      </li>
+      <li><b>Repository access:</b> Only select repositories → privates Inhalts-Repo</li>
+      <li><b>Permissions → Repository → Contents:</b> Read. Sonst nichts.</li>
+      <li>Token hier einfügen und verbinden.</li>
+    </ol>
+    <form id="token-form" class="token-form" autocomplete="off">
+      <label for="token-eingabe">Token</label>
+      <input id="token-eingabe" type="password" placeholder="github_pat_…" spellcheck="false" required>
+      <div class="token-zeile">
+        <label class="haken-text"><input type="checkbox" id="token-merken" checked> in diesem Browser merken</label>
+        <button type="submit" class="knopf knopf-kopie">Verbinden</button>
+      </div>
+    </form>
+    <p class="fehler" id="anmeldung-fehler" role="alert" hidden></p>
+  </section>
+
+  <section id="lade" class="lade" hidden>
+    <p>Lade Stand …</p>
+  </section>
+
+  <div id="dashboard" hidden>
+    <div class="banner" role="note">
+      <span class="banner-punkt" aria-hidden="true"></span>
+      Nur Vorschläge. Nichts wird gesendet.
+    </div>
+
+    <section class="kennzahlen" aria-label="Kennzahlen" id="kennzahlen"></section>
+
+    <section class="fluss-karte" aria-label="Ablauf">
+      <p class="fluss-titel">Ablauf</p>
+      <ol class="fluss">
+        <li><span class="knoten amber">1</span>Ungelesen</li>
+        <li><span class="knoten amber">2</span>Vorschlag</li>
+        <li><span class="knoten amber">3</span>Du entscheidest</li>
+        <li><span class="knoten gruen">4</span>bleibt in WhatsApp</li>
+      </ol>
+    </section>
+
+    <div class="block-kopf">
+      <h2>Auf einen Blick</h2>
+      <p id="blick-unter">Wartende Chats, letzte Zeile, ein Entwurf.</p>
+    </div>
+
+    <p class="leer" id="leer">In dieser Ansicht ist nichts mehr aufgeklappt. In WhatsApp wurde nichts gesendet.</p>
+
+    <section class="board" id="board" aria-label="Wartende Chats"></section>
+
+    <section class="streifen" aria-label="Zuletzt gesehen" id="zuletzt-box" hidden>
+      <div class="block-kopf">
+        <h2>Zuletzt gesehen</h2>
+        <p>Nicht ungelesen.</p>
+      </div>
+      <div class="leise" id="zuletzt"></div>
+    </section>
+
+    <section class="notiz" aria-label="Beim Öffnen gelesen" id="hinweis-box" hidden>
+      <div class="block-kopf">
+        <h2>Beim Öffnen als gelesen markiert</h2>
+        <p>Nicht mehr in den Ungelesenen.</p>
+      </div>
+      <div class="notiz-raster" id="hinweis"></div>
+    </section>
+
+    <p class="fuss" id="fuss"></p>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
