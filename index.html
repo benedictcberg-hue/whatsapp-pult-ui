@@ -36,15 +36,17 @@
     <h2>Mit dem privaten Stand verbinden</h2>
     <p>
       Diese Seite ist öffentlich und enthält keine Chat-Inhalte. Sie liest
-      <code>stand.json</code> aus dem privaten Repo mit deinem eigenen GitHub-Token.
+      <code>stand.json</code> aus dem privaten Repo und schreibt Diskussionen nach
+      <code>gespraeche.json</code> — mit deinem eigenen GitHub-Token.
       Das Token bleibt in diesem Browser und geht nur an <code>api.github.com</code>.
+      Nichts geht an WhatsApp.
     </p>
     <ol class="schritte">
       <li>
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Fine-grained Token anlegen</a>
       </li>
       <li><b>Repository access:</b> Only select repositories → privates Inhalts-Repo</li>
-      <li><b>Permissions → Repository → Contents:</b> Read. Sonst nichts.</li>
+      <li><b>Permissions → Repository → Contents:</b> Read and write. Sonst nichts. Nur das private Repo.</li>
       <li>Token hier einfügen und verbinden.</li>
     </ol>
     <form id="token-form" class="token-form" autocomplete="off">
@@ -65,7 +67,7 @@
   <div id="dashboard" hidden>
     <div class="banner" role="note">
       <span class="banner-punkt" aria-hidden="true"></span>
-      Nur Vorschläge. Nichts wird gesendet.
+      Nur Vorschläge. Nichts wird an WhatsApp gesendet. „Ins Repo“ schreibt nur ins private Repo.
     </div>
 
     <section class="kennzahlen" aria-label="Kennzahlen" id="kennzahlen"></section>

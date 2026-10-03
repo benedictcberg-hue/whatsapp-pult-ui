@@ -364,6 +364,56 @@ blockquote {
 }
 .vorschlag p { margin: 0; font-size: 13.5px; line-height: 1.45; }
 .aktionen { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.dazu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dazu label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--tinte-2);
+}
+.dazu textarea {
+  width: 100%;
+  min-height: 68px;
+  resize: vertical;
+  border: 1px solid var(--linie);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  font-weight: 450;
+  color: var(--tinte);
+  font-size: 14px;
+}
+.schreib-fehler { margin: 0; }
+.gespraech-log[hidden] { display: none; }
+.gespraech-log {
+  background: var(--ruhig);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gespraech-log .etikett {
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinte-3);
+}
+.log-eintrag time {
+  display: block;
+  font-size: 11px;
+  color: var(--tinte-3);
+}
+.log-eintrag p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.45; }
+.log-vorschlag { color: var(--tinte-2); font-size: 12.5px; }
 .knopf {
   border-radius: 999px;
   border: 1px solid var(--linie);
