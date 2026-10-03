@@ -446,7 +446,7 @@ blockquote {
 }
 .leer.sichtbar { display: block; }
 
-.streifen, .notiz {
+.streifen, .notiz, .uebersicht, .kasten {
   background: var(--karte);
   border: 1px solid var(--linie);
   border-radius: var(--radius);
@@ -513,4 +513,100 @@ blockquote {
   .chat { height: 100%; }
   .chat-body { display: flex; flex-direction: column; gap: 10px; flex: 1; }
   .aktionen { margin-top: auto; }
+}
+
+.uebersicht-liste {
+  height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.uebersicht-liste.offen {
+  height: auto;
+  overflow: visible;
+}
+.chat-zeile {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 1.15fr) auto auto minmax(0, 2fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--linie);
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.chat-zeile .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-zeile .vorschau {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--tinte-2);
+  font-size: 13px;
+}
+.chat-zeile.hat-ungelesen { border-color: var(--amber-linie); background: #fffdf8; }
+.neu-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--linie);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: var(--tinte-3);
+  background: var(--ruhig);
+}
+.wunsch-note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--gruen-weich);
+  color: var(--gruen-dunkel);
+  font-size: 13px;
+  font-weight: 650;
+}
+.wunsch-note[hidden] { display: none; }
+#wunsch-fehler { margin: 0 0 12px; }
+.leer-zeile {
+  margin: 8px 0 0;
+  color: var(--tinte-2);
+  font-size: 13px;
+}
+.aufgaben-liste, .termin-liste, .timer-leiste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.aufgabe, .termin-karte, .timer-karte {
+  border: 1px solid var(--linie);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--ruhig);
+  min-width: 0;
+}
+.timer-karte {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.timer-karte .name, .aufgabe .name { font-weight: 700; }
+.meta-klein { color: var(--tinte-3); font-size: 12px; }
+.aufgabe p, .termin-karte p { margin: 4px 0 0; color: var(--tinte-2); font-size: 13px; }
+.chat.sprung, .ruhig-karte.sprung, .notiz-karte.sprung {
+  outline: 2px solid var(--gruen);
+  outline-offset: 2px;
+}
+@media (max-width: 720px) {
+  .chat-zeile { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .chat-zeile .vorschau { grid-column: 1 / -1; }
 }

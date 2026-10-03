@@ -5,8 +5,8 @@ kurze Diskussion dazu. Diese Seite enthält **keine Chat-Inhalte**. Alles
 Inhaltliche kommt zur Laufzeit aus dem privaten Repo
 `benedictcberg-hue/whatsapp-pult`:
 
-- `stand.json` — gelesen (Stand, letzte Zeile, Vorschlag)
-- `gespraeche.json` — gelesen und, über „Ins Repo“, geschrieben
+- `stand.json` — gelesen (Stand, offene Chats, `chats`, `aufgaben`, `timer`, `termine`)
+- `gespraeche.json` — gelesen; „Ins Repo“ und „Neue Vorschläge“ schreiben hierhin
 
 **Adresse:** https://benedictcberg-hue.github.io/whatsapp-pult-ui/
 
@@ -25,6 +25,9 @@ Inhaltliche kommt zur Laufzeit aus dem privaten Repo
 Es geht **nichts** an WhatsApp. „Kopieren“ und „Nicht jetzt“ bleiben lokal
 im Browser. „Ins Repo“ schreibt nur `gespraeche.json` im privaten Repo
 (Branch `main`, GitHub Contents-API: erst GET für die SHA, dann PUT).
+„Neue Vorschläge“ ruft kein Modell auf. Es legt auf demselben Weg einen Eintrag
+`{typ:"neue-vorschlaege", zeit}` ab und zeigt nur die lokale Notiz, dass
+der Wunsch im Repo liegt. Timer werden angezeigt, nicht als Browser-Alarm gezündet.
 
 ## Token
 
