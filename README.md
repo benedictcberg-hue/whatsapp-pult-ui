@@ -59,5 +59,35 @@ kein Server.
 2. **Token** wie oben: nur `whatsapp-pult`, Contents Read and write, sonst nichts.
 3. Seite öffnen, Token einfügen, „Verbinden“. Optional: Token in diesem Browser merken.
 
-Lokal ohne Pages: Dateien direkt im Browser öffnen, oder
-`python -m http.server` im Ordner.
+Lokal ohne Pages: im Ordner `py -m http.server 8000` (Windows) bzw.
+`python3 -m http.server 8000`, dann http://localhost:8000 öffnen.
+Nicht per Doppelklick als `file://` öffnen: dort teilen sich alle lokalen
+HTML-Dateien einen Browserspeicher, ein gemerktes Token wäre für sie lesbar.
+
+## Verhalten bei Fehlern
+
+- Fällt nur `gespraeche.json` aus, bleibt das Dashboard da; ein Hinweis
+  sagt, dass das Log nicht geladen ist. „Ins Repo“ liest vor dem Schreiben neu.
+- „Ins Repo“ schreibt nie über ein Log, das es nicht vollständig gelesen hat:
+  über 1 MB wird der Inhalt über die Blob-SHA nachgeladen; kein Objekt,
+  „gespraeche“ keine Liste oder kein UTF-8 → Abbruch, nichts geschrieben.
+- Konflikte (409/422) werden bis zu dreimal neu gelesen und angehängt.
+  Kam die Antwort eines Schreibvorgangs nicht an, wird derselbe Eintrag
+  beim nächsten Klick erkannt und nicht doppelt geschrieben.
+- „Neu laden“ behält getippten Text und „Nicht jetzt“. „Nicht jetzt“ merkt
+  sich nur einen Prüfwert aus Chat und letzter Zeile, keinen Namen, keinen Text.
+- Das Token wird erst gespeichert, wenn der Stand geladen ist.
+
+## Prüfung
+
+`pruefung/pult-test.js` öffnet die Seite in Chromium und stellt die
+GitHub-API nach: nur erfundene Daten, kein Netz, kein Token. Geprüft werden
+u. a. Schreiben mit Konflikt, Log über 1 MB, Ausfall des Logs, 401/403/404,
+offline, kaputte Daten, 360 px Breite, „Nicht jetzt“ und Entwürfe beim
+Neu laden.
+
+```
+npm install -g playwright
+npx playwright install chromium
+node pruefung/pult-test.js            (Windows: node pruefung\pult-test.js)
+```
