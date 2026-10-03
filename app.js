@@ -13,14 +13,21 @@ const GESPRAECHE_DATEI = "gespraeche.json";
 const BRANCH = "main";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const TOKEN_SCHLUESSEL = "whatsapp-pult-token";
+const WEG_SCHLUESSEL = "whatsapp-pult-weg";
 
 const zustand = {
   token: "",
   stand: null,
   gespraeche: [],
+  laedt: false,
+  schreibend: 0,
+  merken: null,
 };
 
+let ladeLauf = 0;
+
 const chatVonKarte = new WeakMap();
+const offenerEintrag = new WeakMap();
 
 const $ = (id) => document.getElementById(id);
 
@@ -60,10 +67,39 @@ function speicherLoeschen(schluessel) {
 }
 
 class GitHubFehler extends Error {
-  constructor(status, text) {
+  constructor(status, text, limit) {
     super(`${status}: ${text}`);
     this.status = status;
+    this.limit = !!limit;
   }
+}
+
+class NetzFehler extends Error {}
+
+async function holen(url, optionen) {
+  try {
+    return await fetch(url, optionen);
+  } catch (_) {
+    throw new NetzFehler("Keine Verbindung zu api.github.com. Netz prüfen, dann erneut versuchen.");
+  }
+}
+
+function verstaendlich(e, datei) {
+  if (e instanceof GitHubFehler) {
+    if (e.limit) return "GitHub-Limit erreicht (" + e.status + "). In ein paar Minuten erneut versuchen.";
+    if (e.status === 401) return "Token ungültig oder abgelaufen (401). Bitte ein neues Token einfügen.";
+    if (e.status === 404) {
+      return datei + " nicht gefunden (404). Hat das Token Zugriff auf das Repo " + REPO +
+        "? Repository access: Only select repositories → " + REPO + ".";
+    }
+    return e.message;
+  }
+  if (e instanceof SyntaxError) return datei + " ist kein gültiges JSON.";
+  return String(e && e.message ? e.message : e);
+}
+
+function eintraege(liste) {
+  return (Array.isArray(liste) ? liste : []).filter((e) => e && typeof e === "object" && !Array.isArray(e));
 }
 
 function zeigen(was) {
@@ -72,7 +108,7 @@ function zeigen(was) {
   $("dashboard").hidden = was !== "dashboard";
   const verbunden = was === "dashboard";
   $("verbindung").hidden = !verbunden;
-  $("neu-laden").hidden = !verbunden;
+  $("neu-laden").hidden = !(verbunden || was === "anmeldung" && !!zustand.token);
   $("abmelden").hidden = !(verbunden || was === "anmeldung" && !!zustand.token);
 }
 
@@ -87,22 +123,31 @@ function githubKopf(accept) {
 async function fehlerAus(antwort) {
   let text = antwort.statusText;
   try {
-    const j = await antwort.json();
-    text = j.message || text;
-  } catch (_) {
-    try { text = (await antwort.text()) || text; } catch (__) { /* egal */ }
-  }
-  return new GitHubFehler(antwort.status, text);
+    const roh = await antwort.text();
+    try {
+      text = JSON.parse(roh).message || roh || text;
+    } catch (_) {
+      text = roh || text;
+    }
+  } catch (_) { /* egal */ }
+  const rest = antwort.headers.get("x-ratelimit-remaining");
+  const limit = (antwort.status === 403 || antwort.status === 429) &&
+    (rest === "0" || /rate limit/i.test(text));
+  return new GitHubFehler(antwort.status, text, limit);
 }
 
 async function standLaden() {
   const url = `${API}/contents/${DATEI}?ref=${encodeURIComponent(BRANCH)}`;
-  const antwort = await fetch(url, {
+  const antwort = await holen(url, {
     cache: "no-store",
     headers: githubKopf("application/vnd.github.raw+json"),
   });
   if (!antwort.ok) throw await fehlerAus(antwort);
-  return JSON.parse(await antwort.text());
+  const daten = JSON.parse(await antwort.text());
+  if (!daten || typeof daten !== "object" || Array.isArray(daten)) {
+    throw new Error(DATEI + " hat kein Objekt.");
+  }
+  return daten;
 }
 
 function utf8NachBase64(text) {
@@ -115,13 +160,23 @@ function utf8NachBase64(text) {
   return btoa(bin);
 }
 
+// Streng: eine Datei in ANSI/Windows-1252 bricht ab, statt beim nächsten
+// Schreiben alle Umlaute durch Ersatzzeichen zu ersetzen.
+function utf8Streng(bytes) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (_) {
+    throw new Error("gespraeche.json ist kein UTF-8. Nichts geschrieben.");
+  }
+}
+
 function base64NachUtf8(b64) {
   const rein = String(b64 || "").replace(/\s/g, "");
   if (!rein) return "";
   const bin = atob(rein);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
+  return utf8Streng(bytes);
 }
 
 function gespraecheObjekt(roh) {
@@ -131,13 +186,16 @@ function gespraecheObjekt(roh) {
   if (!daten || typeof daten !== "object" || Array.isArray(daten)) {
     throw new Error("gespraeche.json hat kein Objekt. Nichts geschrieben.");
   }
-  if (!Array.isArray(daten.gespraeche)) daten.gespraeche = [];
+  if (daten.gespraeche === undefined) daten.gespraeche = [];
+  if (!Array.isArray(daten.gespraeche)) {
+    throw new Error("gespraeche.json: „gespraeche“ ist keine Liste. Nichts geschrieben.");
+  }
   return daten;
 }
 
 async function gespraecheLaden() {
   const url = `${API}/contents/${GESPRAECHE_DATEI}?ref=${encodeURIComponent(BRANCH)}`;
-  const antwort = await fetch(url, {
+  const antwort = await holen(url, {
     cache: "no-store",
     headers: githubKopf("application/vnd.github.raw+json"),
   });
@@ -175,43 +233,76 @@ function eintragBauen(chat, text, vorschlag) {
 }
 
 function schreibHinweis(e) {
-  const meldung = e && e.message ? e.message : String(e);
-  const status = e instanceof GitHubFehler ? e.status : 0;
-  const fehltRecht = status === 403 || /resource not accessible|not accessible by integration|write access|contents permission/i.test(meldung);
-  if (fehltRecht) {
-    return meldung + " Das Token braucht Contents: Read and write auf whatsapp-pult.";
+  if (e instanceof GitHubFehler && !e.limit) {
+    const fehltRecht = e.status === 403 || /resource not accessible|not accessible by integration|write access|contents permission/i.test(e.message);
+    if (fehltRecht) {
+      return e.message + " Das Token braucht Contents: Read and write auf whatsapp-pult.";
+    }
   }
-  return meldung;
+  return verstaendlich(e, GESPRAECHE_DATEI);
+}
+
+async function blobLesen(sha) {
+  // Inhalt genau zu dieser SHA. Die Contents-API liefert über 1 MB keinen
+  // content mit; ohne das hier würde der nächste PUT das Log überschreiben.
+  const antwort = await holen(`${API}/git/blobs/${encodeURIComponent(sha)}`, {
+    cache: "no-store",
+    headers: githubKopf("application/vnd.github.raw+json"),
+  });
+  if (!antwort.ok) throw await fehlerAus(antwort);
+  return utf8Streng(new Uint8Array(await antwort.arrayBuffer()));
 }
 
 async function gespraecheLesenMitSha() {
   const url = `${API}/contents/${GESPRAECHE_DATEI}?ref=${encodeURIComponent(BRANCH)}`;
-  const antwort = await fetch(url, {
+  const antwort = await holen(url, {
     cache: "no-store",
     headers: githubKopf("application/vnd.github+json"),
   });
   if (antwort.status === 404) return { sha: null, daten: { gespraeche: [] } };
   if (!antwort.ok) throw await fehlerAus(antwort);
   const meta = await antwort.json();
+  if (!meta || typeof meta.sha !== "string" || !meta.sha) {
+    throw new Error("gespraeche.json: Antwort ohne SHA. Nichts geschrieben.");
+  }
+  const vollstaendig = meta.encoding === "base64" && (!!meta.content || Number(meta.size) === 0);
+  const roh = vollstaendig ? base64NachUtf8(meta.content) : await blobLesen(meta.sha);
   let daten;
   try {
-    daten = gespraecheObjekt(base64NachUtf8(meta.content));
+    daten = gespraecheObjekt(roh);
   } catch (e) {
     if (e instanceof SyntaxError) {
       throw new Error("gespraeche.json ist kein gültiges JSON. Nichts geschrieben.");
     }
     throw e;
   }
-  return { sha: meta.sha || null, daten };
+  return { sha: meta.sha, daten };
 }
 
-async function gespraecheAblegen(chat, text, vorschlag) {
+function gleicherEintrag(a, b) {
+  return !!a && typeof a === "object" && a.zeit === b.zeit && a.name === b.name && a.text === b.text;
+}
+
+// Schreibvorgänge dieses Tabs laufen nacheinander, nicht gegeneinander.
+let schreibKette = Promise.resolve();
+
+function gespraecheAblegen(chat, eintrag) {
+  const lauf = schreibKette.then(() => gespraecheAblegenJetzt(chat, eintrag));
+  schreibKette = lauf.catch(() => {});
+  return lauf;
+}
+
+async function gespraecheAblegenJetzt(chat, eintrag) {
   const url = `${API}/contents/${GESPRAECHE_DATEI}`;
   const name = String((chat && chat.name) || "").replace(/[\r\n]+/g, " ").trim();
   let letzterFehler = null;
-  for (let versuch = 0; versuch < 2; versuch++) {
+  for (let versuch = 0; versuch < 3; versuch++) {
+    if (versuch) await new Promise((ok) => window.setTimeout(ok, 400 * versuch));
     const { sha, daten } = await gespraecheLesenMitSha();
-    daten.gespraeche.push(eintragBauen(chat, text, vorschlag));
+    // Kam die Antwort eines früheren Versuchs nie an, steht der Eintrag
+    // vielleicht schon im Repo. Dann nicht doppelt schreiben.
+    if (daten.gespraeche.some((e) => gleicherEintrag(e, eintrag))) return daten.gespraeche;
+    daten.gespraeche.push(eintrag);
     const inhalt = JSON.stringify(daten, null, 2) + "\n";
     const koerper = {
       message: "Gespraech: " + name,
@@ -219,7 +310,7 @@ async function gespraecheAblegen(chat, text, vorschlag) {
       branch: BRANCH,
     };
     if (sha) koerper.sha = sha;
-    const antwort = await fetch(url, {
+    const antwort = await holen(url, {
       method: "PUT",
       cache: "no-store",
       headers: {
@@ -230,7 +321,7 @@ async function gespraecheAblegen(chat, text, vorschlag) {
     });
     if (antwort.ok) return daten.gespraeche;
     letzterFehler = await fehlerAus(antwort);
-    if (letzterFehler.status !== 409) throw letzterFehler;
+    if (letzterFehler.status !== 409 && letzterFehler.status !== 422) throw letzterFehler;
   }
   throw letzterFehler;
 }
@@ -260,15 +351,18 @@ function inZwischenablage(text) {
   });
 }
 
+function anzahlVon(chat) {
+  return Math.max(0, Math.floor(Number(chat.anzahl) || 0));
+}
+
 function kennzahlenZeichnen(daten) {
-  const ungelesen = Array.isArray(daten.ungelesen) ? daten.ungelesen : [];
-  const sichtbar = $("board").querySelectorAll("article.chat:not(.weg)").length;
-  const nachrichten = ungelesen.reduce((s, c) => s + (Number(c.anzahl) || 0), 0);
+  const ungelesen = eintraege(daten.ungelesen);
+  const nachrichten = ungelesen.reduce((s, c) => s + anzahlVon(c), 0);
   const kasten = [
     { wert: ungelesen.length, label: "Ungelesene Chats" },
     { wert: nachrichten, label: "Nachrichten offen" },
-    { wert: ungelesen.length, label: "Warten auf dich", klasse: "warten" },
-    { wert: sichtbar, label: "Vorschläge bereit", klasse: "ok", id: "bereit" },
+    { wert: 0, label: "Warten auf dich", klasse: "warten", id: "warten" },
+    { wert: 0, label: "Vorschläge bereit", klasse: "ok", id: "bereit" },
   ];
   $("kennzahlen").replaceChildren(...kasten.map((k) =>
     el("article", { class: "kennzahl" + (k.klasse ? " " + k.klasse : "") },
@@ -276,19 +370,73 @@ function kennzahlenZeichnen(daten) {
       el("span", { text: k.label })
     )
   ));
+  zaehlen();
 }
 
 function zaehlen() {
-  const n = $("board").querySelectorAll("article.chat:not(.weg)").length;
+  const offen = $("board").querySelectorAll("article.chat:not(.weg)");
+  const mitVorschlag = Array.from(offen).filter((k) => {
+    const e = k.querySelector(".entwurf");
+    return !!(e && e.textContent.trim());
+  }).length;
+  const warten = $("warten");
+  if (warten) warten.textContent = String(offen.length);
   const bereit = $("bereit");
-  if (bereit) bereit.textContent = String(n);
-  $("leer").classList.toggle("sichtbar", n === 0);
+  if (bereit) bereit.textContent = String(mitVorschlag);
+  $("leer").classList.toggle("sichtbar", offen.length === 0);
+}
+
+function chatSchluessel(chat) {
+  return hatChatId(chat.id) ? "id:" + String(chat.id) : "name:" + String(chat.name || "");
+}
+
+// "Nicht jetzt" überlebt Neu laden. Gespeichert wird nur ein Prüfwert aus
+// Chat und letzter Zeile, kein Name und kein Text. Neue Zeile = wieder sichtbar.
+function wegWert(chat) {
+  const text = chatSchluessel(chat) + "\n" + String(chat.letzte || "");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+function wegLesen() {
+  try {
+    const liste = JSON.parse(speicherLesen(WEG_SCHLUESSEL) || "[]");
+    return new Set(Array.isArray(liste) ? liste.map(String) : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function wegSchreiben(menge) {
+  const dauerhaft = (() => {
+    try { return !!localStorage.getItem(TOKEN_SCHLUESSEL); } catch (_) { return false; }
+  })();
+  speicherLoeschen(WEG_SCHLUESSEL);
+  if (menge.size) speicherSchreiben(WEG_SCHLUESSEL, JSON.stringify(Array.from(menge)), dauerhaft);
+}
+
+function wegMerken(chat, weg) {
+  const menge = wegLesen();
+  if (weg) menge.add(wegWert(chat));
+  else menge.delete(wegWert(chat));
+  wegSchreiben(menge);
+}
+
+function ansagen(text) {
+  const a = $("ansage");
+  if (!a) return;
+  a.textContent = "";
+  window.setTimeout(() => { a.textContent = text; }, 60);
 }
 
 function chatKarte(chat) {
   const name = String(chat.name || "");
   const zeit = String(chat.zeit || "");
-  const anzahl = Number(chat.anzahl) || 0;
+  const anzahl = anzahlVon(chat);
   const letzte = String(chat.letzte || "");
   const vorschlag = String(chat.vorschlag || "");
 
@@ -302,7 +450,7 @@ function chatKarte(chat) {
   const log = el("div", { class: "gespraech-log" });
   const feld = el("textarea", {
     rows: "3",
-    placeholder: "Nur ins private Repo. Nicht an WhatsApp.",
+    placeholder: "Nur ins private Repo. Nicht an WhatsApp. Strg+Enter schreibt.",
   });
   const insRepo = el("button", {
     type: "button",
@@ -359,7 +507,7 @@ function zeitAnzeige(iso) {
 }
 
 function logZeichnen(container, chat) {
-  const liste = (Array.isArray(zustand.gespraeche) ? zustand.gespraeche : []).filter((e) => passtZuChat(e, chat));
+  const liste = eintraege(zustand.gespraeche).filter((e) => passtZuChat(e, chat));
   if (!liste.length) {
     container.hidden = true;
     container.replaceChildren();
@@ -376,9 +524,35 @@ function logZeichnen(container, chat) {
   );
 }
 
+function alleLogsZeichnen() {
+  for (const karte of $("board").querySelectorAll("article.chat")) {
+    const chat = chatVonKarte.get(karte);
+    const log = karte.querySelector(".gespraech-log");
+    if (chat && log) logZeichnen(log, chat);
+  }
+}
+
 function boardZeichnen(daten) {
-  const liste = Array.isArray(daten.ungelesen) ? daten.ungelesen : [];
-  $("board").replaceChildren(...liste.map(chatKarte));
+  const liste = eintraege(daten.ungelesen);
+  // Getippter Text in "Dazu sagen" bleibt beim Neu laden stehen.
+  const entwuerfe = new Map();
+  for (const karte of $("board").querySelectorAll("article.chat")) {
+    const chat = chatVonKarte.get(karte);
+    const feld = karte.querySelector("textarea");
+    if (chat && feld && feld.value) entwuerfe.set(chatSchluessel(chat), feld.value);
+  }
+  const weg = wegLesen();
+  const karten = liste.map((chat) => {
+    const karte = chatKarte(chat);
+    const entwurf = entwuerfe.get(chatSchluessel(chat));
+    if (entwurf) karte.querySelector("textarea").value = entwurf;
+    if (weg.has(wegWert(chat))) karte.classList.add("weg");
+    return karte;
+  });
+  const sichtbar = new Set(liste.map(wegWert));
+  const bleibt = new Set(Array.from(weg).filter((w) => sichtbar.has(w)));
+  if (bleibt.size !== weg.size) wegSchreiben(bleibt);
+  $("board").replaceChildren(...karten);
   $("blick-unter").textContent = liste.length
     ? (liste.length === 1 ? "Ein Chat, letzte Zeile, ein Entwurf." : liste.length + " Chats, letzte Zeile, ein Entwurf.")
     : "Keine wartenden Chats.";
@@ -386,7 +560,7 @@ function boardZeichnen(daten) {
 }
 
 function zuletztZeichnen(daten) {
-  const liste = Array.isArray(daten.zuletzt) ? daten.zuletzt : [];
+  const liste = eintraege(daten.zuletzt);
   const box = $("zuletzt-box");
   if (!liste.length) {
     box.hidden = true;
@@ -396,7 +570,7 @@ function zuletztZeichnen(daten) {
   box.hidden = false;
   $("zuletzt").replaceChildren(...liste.map((eintrag) => {
     const statusKinder = [String(eintrag.status || "")];
-    if (eintrag.ticks) {
+    if (eintrag.ticks === true) {
       statusKinder.push(" ");
       statusKinder.push(el("span", { class: "ticks", "aria-hidden": "true", text: "✓✓" }));
     }
@@ -412,7 +586,7 @@ function zuletztZeichnen(daten) {
 }
 
 function hinweisZeichnen(daten) {
-  const liste = Array.isArray(daten.hinweis) ? daten.hinweis : [];
+  const liste = eintraege(daten.hinweis);
   const box = $("hinweis-box");
   if (!liste.length) {
     box.hidden = true;
@@ -452,28 +626,86 @@ function dashboardZeichnen(daten) {
   zeigen("dashboard");
 }
 
-async function starten() {
-  zeigen("lade");
+function neuLadenKnopf() {
+  const knopf = $("neu-laden");
+  knopf.disabled = zustand.laedt || zustand.schreibend > 0;
+  knopf.textContent = zustand.laedt ? "Lädt …" : "Neu laden";
+}
+
+function tokenUngueltig(text) {
+  ladeLauf++;
+  zustand.laedt = false;
+  speicherLoeschen(TOKEN_SCHLUESSEL);
+  zustand.token = "";
+  zustand.merken = null;
+  dashboardLeeren();
+  neuLadenKnopf();
+  const f = $("anmeldung-fehler");
+  f.textContent = text;
+  f.hidden = false;
+  zeigen("anmeldung");
+}
+
+function tokenHinweis() {
+  return /^ghp_/.test(zustand.token)
+    ? "Klassisches Token (ghp_…) erkannt: es reicht an alle deine Repos. Besser ein fine-grained Token nur für " + REPO + "."
+    : "";
+}
+
+function logHinweis(text) {
+  // Nach einem Deploy kann kurz eine ältere index.html im Cache liegen.
+  const h = $("log-hinweis");
+  if (!h) return;
+  h.textContent = text;
+  h.hidden = !text;
+}
+
+// still: Neu laden aus dem Dashboard. Der vorige Stand bleibt sichtbar,
+// ein Netzfehler wirft dann nicht auf die Anmeldung zurück.
+async function starten(still) {
+  const lauf = ++ladeLauf;
+  const leise = !!still && !!zustand.stand;
+  zustand.laedt = true;
+  neuLadenKnopf();
+  if (!leise) zeigen("lade");
   $("anmeldung-fehler").hidden = true;
   try {
-    const daten = await standLaden();
-    const gespraeche = await gespraecheLaden();
-    zustand.gespraeche = Array.isArray(gespraeche.gespraeche) ? gespraeche.gespraeche : [];
-    dashboardZeichnen(daten);
-  } catch (e) {
-    const f = $("anmeldung-fehler");
-    if (e instanceof GitHubFehler && e.status === 401) {
-      speicherLoeschen(TOKEN_SCHLUESSEL);
-      zustand.token = "";
-      f.textContent = e.message;
-    } else if (e instanceof GitHubFehler) {
-      f.textContent = e.message;
-    } else {
-      f.textContent = String(e && e.message ? e.message : e);
+    const [stand, gespraeche] = await Promise.allSettled([standLaden(), gespraecheLaden()]);
+    if (lauf !== ladeLauf) return;
+    if (stand.status === "rejected") throw stand.reason;
+    if (zustand.merken !== null) {
+      speicherSchreiben(TOKEN_SCHLUESSEL, zustand.token, zustand.merken);
+      zustand.merken = null;
     }
+    const hinweise = [tokenHinweis()];
+    if (gespraeche.status === "fulfilled") {
+      zustand.gespraeche = Array.isArray(gespraeche.value.gespraeche) ? gespraeche.value.gespraeche : [];
+    } else {
+      if (!leise) zustand.gespraeche = [];
+      hinweise.push("Diskussionslog nicht geladen: " + verstaendlich(gespraeche.reason, GESPRAECHE_DATEI) +
+        " „Ins Repo“ liest das Log vor dem Schreiben neu.");
+    }
+    logHinweis(hinweise.filter(Boolean).join(" "));
+    dashboardZeichnen(stand.value);
+  } catch (e) {
+    if (lauf !== ladeLauf) return;
+    const text = verstaendlich(e, DATEI);
+    if (e instanceof GitHubFehler && e.status === 401) {
+      tokenUngueltig(text);
+      return;
+    } else if (leise) {
+      logHinweis("Neu laden fehlgeschlagen: " + text + " Zu sehen ist der vorige Stand.");
+      return;
+    }
+    const f = $("anmeldung-fehler");
+    f.textContent = text;
     f.hidden = false;
     zeigen("anmeldung");
-    $("abmelden").hidden = !zustand.token;
+  } finally {
+    if (lauf === ladeLauf) {
+      zustand.laedt = false;
+      neuLadenKnopf();
+    }
   }
 }
 
@@ -489,30 +721,54 @@ function dashboardLeeren() {
   $("stand-meta").textContent = "";
   $("fuss").textContent = "";
   $("leer").classList.remove("sichtbar");
+  logHinweis("");
 }
 
 function verdrahten() {
+  // Nicht in fremden Seiten einbetten lassen (Pages kann keine Header setzen).
+  if (window.top !== window.self) {
+    document.body.textContent = "WhatsApp-Pult bitte direkt öffnen.";
+    return;
+  }
   $("token-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const wert = $("token-eingabe").value.trim();
     if (!wert) return;
     zustand.token = wert;
-    speicherSchreiben(TOKEN_SCHLUESSEL, wert, $("token-merken").checked);
+    // Gespeichert wird erst, wenn der Stand geladen ist (siehe starten).
+    speicherLoeschen(TOKEN_SCHLUESSEL);
+    zustand.merken = $("token-merken").checked;
     $("token-eingabe").value = "";
     $("anmeldung-fehler").hidden = true;
     starten();
   });
 
   $("abmelden").addEventListener("click", () => {
+    ladeLauf++;
+    zustand.laedt = false;
+    zustand.merken = null;
+    neuLadenKnopf();
     speicherLoeschen(TOKEN_SCHLUESSEL);
+    speicherLoeschen(WEG_SCHLUESSEL);
     zustand.token = "";
     dashboardLeeren();
+    $("anmeldung-fehler").hidden = true;
     zeigen("anmeldung");
-    $("abmelden").hidden = true;
   });
 
   $("neu-laden").addEventListener("click", () => {
-    if (zustand.token) starten();
+    if (zustand.token && !zustand.laedt && !zustand.schreibend) starten(true);
+  });
+
+  $("board").addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+    const ziel = ev.target;
+    if (!(ziel instanceof HTMLTextAreaElement)) return;
+    const knopf = ziel.closest("article.chat") && ziel.closest("article.chat").querySelector("[data-repo]");
+    if (knopf) {
+      ev.preventDefault();
+      knopf.click();
+    }
   });
 
   $("board").addEventListener("click", (ev) => {
@@ -528,6 +784,7 @@ function verdrahten() {
       inZwischenablage(text).then(() => {
         knopf.textContent = "Kopiert";
         knopf.classList.add("fertig");
+        ansagen("Vorschlag kopiert.");
         window.setTimeout(() => {
           knopf.textContent = "Kopieren";
           knopf.classList.remove("fertig");
@@ -555,41 +812,67 @@ function verdrahten() {
       }
       const entwurf = chat.querySelector(".entwurf");
       const vorschlagText = entwurf ? entwurf.textContent : "";
+      const offen = offenerEintrag.get(chat);
+      const eintrag = offen && offen.text === textEingabe && offen.vorschlag === vorschlagText
+        ? offen
+        : eintragBauen(chatDaten, textEingabe, vorschlagText);
+      offenerEintrag.set(chat, eintrag);
       knopf.disabled = true;
       knopf.textContent = "Schreibe …";
       if (fehler) fehler.hidden = true;
-      gespraecheAblegen(chatDaten, textEingabe, vorschlagText).then((liste) => {
+      zustand.schreibend++;
+      neuLadenKnopf();
+      gespraecheAblegen(chatDaten, eintrag).then((liste) => {
+        offenerEintrag.delete(chat);
+        if (!zustand.token) return; // inzwischen abgemeldet
         zustand.gespraeche = liste;
-        const log = chat.querySelector(".gespraech-log");
-        if (log) logZeichnen(log, chatDaten);
-        if (bereich) bereich.value = "";
+        alleLogsZeichnen();
+        if (bereich && bereich.value.trim() === textEingabe) bereich.value = "";
         knopf.textContent = "Im Repo";
         knopf.classList.add("fertig");
+        ansagen("Ins private Repo geschrieben.");
         window.setTimeout(() => {
           knopf.textContent = "Ins Repo";
           knopf.classList.remove("fertig");
           knopf.disabled = false;
         }, 1600);
       }).catch((e) => {
+        if (!(e instanceof NetzFehler)) offenerEintrag.delete(chat);
+        if (!zustand.token) return; // inzwischen abgemeldet
+        if (e instanceof GitHubFehler && e.status === 401) {
+          tokenUngueltig(verstaendlich(e, GESPRAECHE_DATEI));
+          return;
+        }
         if (fehler) {
           fehler.hidden = false;
           fehler.textContent = schreibHinweis(e);
         }
         knopf.textContent = "Ins Repo";
         knopf.disabled = false;
+      }).finally(() => {
+        zustand.schreibend--;
+        neuLadenKnopf();
       });
       return;
     }
 
     if (ziel.closest("[data-spaeter]")) {
       chat.classList.add("weg");
+      const chatDaten = chatVonKarte.get(chat);
+      if (chatDaten) wegMerken(chatDaten, true);
       zaehlen();
+      const wieder = chat.querySelector(".wieder");
+      if (wieder) wieder.focus();
       return;
     }
 
     if (ziel.closest(".wieder")) {
       chat.classList.remove("weg");
+      const chatDaten = chatVonKarte.get(chat);
+      if (chatDaten) wegMerken(chatDaten, false);
       zaehlen();
+      const spaeter = chat.querySelector("[data-spaeter]");
+      if (spaeter) spaeter.focus();
     }
   });
 
